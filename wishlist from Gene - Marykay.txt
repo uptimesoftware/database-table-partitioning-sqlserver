@@ -1,0 +1,8 @@
+Gene
+Marykay
+
+Wishlist for SQL Server Table Partitioning Maint scripts
+-better error handling (show errors) at the end of the maint script(s)
+-make it remove more than one month at a time smoothly
+
+-make maint-in-3 script work without needing to copy > paste output (technical limitations)

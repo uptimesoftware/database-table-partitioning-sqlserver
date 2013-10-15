@@ -1,0 +1,1397 @@
+Mary Kay - SQL ServerTable Partitioning
+
+
+USE uptime
+GO
+
+CREATE TABLE [dbo].[performance_aggregate_old](
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[cpu_usr] [float] NULL,
+	[cpu_sys] [float] NULL,
+	[cpu_wio] [float] NULL,
+	[free_mem] [float] NULL,
+	[free_swap] [float] NULL,
+	[run_queue] [float] NULL,
+	[run_occ] [float] NULL,
+	[read_cache] [float] NULL,
+	[write_cache] [float] NULL,
+	[pg_out_sec] [float] NULL,
+	[ppg_out_sec] [float] NULL,
+	[pg_free_sec] [float] NULL,
+	[pg_scan_sec] [float] NULL,
+	[atch_sec] [float] NULL,
+	[pg_in_sec] [float] NULL,
+	[ppg_in_sec] [float] NULL,
+	[pflt_sec] [float] NULL,
+	[vflt_sec] [float] NULL,
+	[slock_sec] [float] NULL,
+	[num_procs] [numeric](19, 0) NULL,
+	[proc_read] [float] NULL,
+	[proc_write] [float] NULL,
+	[proc_block] [float] NULL,
+	[dnlc] [float] NULL,
+	[fork_sec] [float] NULL,
+	[exec_sec] [float] NULL,
+	[tcp_retrans] [numeric](19, 0) NULL,
+	[worst_disk_usage] [numeric](19, 0) NULL,
+	[worst_disk_busy] [numeric](19, 0) NULL,
+	[used_swap_percent] [numeric](19, 0) NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[sample_id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+) ON [PRIMARY]
+
+
+
+
+select ( CAST( FLOOR( CAST( 
+ DATEADD(month, 1, GETDATE()))
+ AS FLOAT ) ) AS DATETIME ) ) AS date_only
+
+
+
+
+
+USE uptime
+GO
+
+
+CREATE FUNCTION dbo.GetSwitchOutDate()
+RETURNS Date
+AS
+BEGIN
+	DECLARE @MERGE_DATE date;
+
+	SET @MERGE_DATE = (SELECT ( CAST( FLOOR( CAST( 
+	DATEADD(month, 1 * -1, DATEADD(day, DATENAME(d, ((select MIN(sample_date) from performance_aggregate))-1)*-1, (select MIN(sample_date) from performance_aggregate)))
+	AS FLOAT ) ) AS DATETIME ) ) AS date_only);
+
+	RETURN @MERGE_DATE
+END
+
+
+
+
+
+
+USE uptime
+GO
+
+DECLARE @MONTHS_TO_KEEP int;
+SET @MONTHS_TO_KEEP = 8
+
+DECLARE @MERGE_DATE date;
+
+IF (SELECT DATENAME(d, (SELECT MIN(sample_date) from performance_aggregate))) > 1
+BEGIN
+SET @MERGE_DATE = (
+SELECT 
+( 
+	CAST
+	( 
+		FLOOR
+		( 
+			CAST
+			( 
+				DATEADD
+				(
+					month, 
+					1, 
+					DATEADD
+					(
+						day, 
+						DATENAME
+						(
+							d, 
+							(select MIN(sample_date) from performance_aggregate)
+							-1
+						)
+						*-1, 
+						(select MIN(sample_date) from performance_aggregate)
+					)
+				)
+				AS FLOAT 
+			) 
+		) 
+		AS DATETIME 
+	) 
+) 
+AS date_only
+)
+
+END
+ELSE
+
+BEGIN
+SET @MERGE_DATE = (
+SELECT 
+( 
+	CAST
+	( 
+		FLOOR
+		( 
+			CAST
+			( 
+				DATEADD
+				(
+					month, 
+					1, 
+					(select MIN(sample_date) from performance_aggregate)
+				)
+				AS FLOAT 
+			) 
+		) 
+		AS DATETIME 
+	) 
+) 
+AS date_only
+)
+END
+
+
+
+/* check if we have any data to archive */
+IF (
+SELECT MIN(sample_date) from performance_aggregate
+) < (
+SELECT ( CAST( FLOOR( CAST(  DATEADD(month, (@MONTHS_TO_KEEP * -1), GETDATE()) AS FLOAT ) ) AS DATETIME ) )
+)
+BEGIN
+	/* make sure that we aren't trying to drop multiple partitions (only one at a time!) */
+	IF (
+	SELECT MIN(sample_date) from performance_aggregate
+	) < (
+	SELECT ( CAST( FLOOR( CAST(  DATEADD(month, ((@MONTHS_TO_KEEP + 1) * -1), GETDATE()) AS FLOAT ) ) AS DATETIME ) )
+	)
+	BEGIN
+		PRINT 'Warning: Attempting to archive more than one partition!';
+	END
+	ELSE BEGIN
+		PRINT 'Only one month is being partitioned (good).';
+		
+		PRINT 'Merge Date: ';
+		PRINT @MERGE_DATE;
+		BEGIN TRANSACTION
+			IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_aggregate_old' AND type = 'U') DROP TABLE performance_aggregate_old;
+			CREATE TABLE [dbo].[performance_aggregate_old](
+				[sample_id] [numeric](19, 0) NOT NULL,
+				[cpu_usr] [float] NULL,
+				[cpu_sys] [float] NULL,
+				[cpu_wio] [float] NULL,
+				[free_mem] [float] NULL,
+				[free_swap] [float] NULL,
+				[run_queue] [float] NULL,
+				[run_occ] [float] NULL,
+				[read_cache] [float] NULL,
+				[write_cache] [float] NULL,
+				[pg_out_sec] [float] NULL,
+				[ppg_out_sec] [float] NULL,
+				[pg_free_sec] [float] NULL,
+				[pg_scan_sec] [float] NULL,
+				[atch_sec] [float] NULL,
+				[pg_in_sec] [float] NULL,
+				[ppg_in_sec] [float] NULL,
+				[pflt_sec] [float] NULL,
+				[vflt_sec] [float] NULL,
+				[slock_sec] [float] NULL,
+				[num_procs] [numeric](19, 0) NULL,
+				[proc_read] [float] NULL,
+				[proc_write] [float] NULL,
+				[proc_block] [float] NULL,
+				[dnlc] [float] NULL,
+				[fork_sec] [float] NULL,
+				[exec_sec] [float] NULL,
+				[tcp_retrans] [numeric](19, 0) NULL,
+				[worst_disk_usage] [numeric](19, 0) NULL,
+				[worst_disk_busy] [numeric](19, 0) NULL,
+				[used_swap_percent] [numeric](19, 0) NULL,
+				[sample_date] [datetime] NOT NULL
+			PRIMARY KEY CLUSTERED 
+			(
+				[sample_id],
+				[sample_date] ASC
+			)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+			) ON scheme_aggregate ([sample_date]);
+
+			ALTER PARTITION SCHEME [scheme_aggregate] NEXT USED [PRIMARY];
+
+			DECLARE @OLDEST_PARTITION_NUM int;
+			SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_aggregate(sample_date)) FROM performance_aggregate
+			print 'Oldest Partition Number:'
+			print @OLDEST_PARTITION_NUM
+			ALTER TABLE performance_aggregate SWITCH PARTITION @OLDEST_PARTITION_NUM TO [performance_aggregate_old]PARTITION @OLDEST_PARTITION_NUM
+			ALTER PARTITION FUNCTION [function_aggregate]() MERGE RANGE (@MERGE_DATE)
+			IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_aggregate_old' AND type = 'U') DROP TABLE performance_aggregate_old;
+			PRINT 'DONE!';
+		COMMIT TRANSACTION
+
+	END
+END
+ELSE BEGIN
+	PRINT 'No data to archive.'
+END
+GO
+
+
+
+
+
+
+
+use uptime
+go
+
+select COUNT(*) 'Row_Count' from performance_aggregate
+go
+select COUNT(*) 'Row_Count' from performance_aggregate_old
+go
+
+
+SELECT $partition.function_aggregate(o.sample_date) 
+         AS [Partition Number]
+   , min(o.sample_date) AS [Min_Sample_Date]
+   , max(o.sample_date) AS [Max_Sample_Date]
+   , count(*) AS [Rows_In_Partition]
+FROM performance_aggregate AS o
+GROUP BY $partition.function_aggregate(o.sample_date)
+GO
+
+SELECT $PARTITION.function_sample('2009-10-01')
+GO
+
+
+select MIN($partition.function_aggregate(sample_date))
+from performance_aggregate
+GO
+
+
+
+
+
+switch out
+select ( CAST( FLOOR( CAST( 
+ DATEADD(month, 1 * -1, DATEADD(day, DATENAME(d, ((select MIN(sample_date) from performance_aggregate))-1)*-1, (select MIN(sample_date) from performance_aggregate)))
+ AS FLOAT ) ) AS DATETIME ) ) AS date_only
+
+
+switch in
+SELECT ( CAST( FLOOR( CAST( 
+ DATEADD(month, 3, GETDATE())
+ AS FLOAT ) ) AS DATETIME ) ) AS date_only
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+Name:  upt_SwitchOutPartition
+Description:  displays all records and columns in USERLIST table
+Author:  Tom O’Neill
+Modification Log: Change
+
+Description                  Date         Changed By
+Created procedure            7/15/2003    Tom O’Neill
+*/
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_SwitchOutPartition' AND type = 'P') DROP PROCEDURE upt_SwitchOutPartition;
+GO
+CREATE PROCEDURE upt_SwitchOutPartition
+@MONTHS_TO_KEEP int,
+@COLUMN_NAME varchar(50),
+@TABLE_NAME varchar(50)
+AS
+BEGIN
+
+DECLARE @SQLString varchar(500)
+DECLARE @S2 nvarchar(500)
+
+SET @SQLString = 'SELECT DATENAME(d, (SELECT MIN(' + @COLUMN_NAME + ') from ' + @TABLE_NAME + '))'
+print 'SQL STRING: ' + @SQLString
+Select @S2 = CAST(@SQLString as nvarchar(500))
+EXECUTE sp_executesql @S2
+
+END
+GO
+
+
+exec upt_SwitchOutPartition 10, 'sample_date', 'performance_aggregate'
+GO
+
+
+
+
+
+
+
+
+
+
+
+STORED PROCEDURE:
+/*
+Name:  upt_SwitchOutPartition
+Description: Switches out the last partition in the table (if it has data).
+			It will only switch out one monthly partition (last one) and complain if you're
+			trying to do more.
+Author:  Joel Pereira
+Modification Log: Change
+
+Description							Date			Changed By
+Created procedure					11/10/2003		Joel Pereira
+*/
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_SwitchOutPartition' AND type = 'P') DROP PROCEDURE upt_SwitchOutPartition;
+GO
+CREATE PROCEDURE upt_SwitchOutPartition
+@COLUMN_NAME varchar(50),
+@TABLE_NAME varchar(50),
+@SCHEME_NAME varchar(50),
+@PARTITION_FUNCTION_NAME varchar(50),
+@MIN_SAMPLE_DATE_IN_TABLE datetime,
+@OLDEST_PARTITION_NUM int
+AS
+BEGIN
+
+
+
+/********* Number of Months of Data To Keep *************/
+DECLARE @MONTHS_TO_KEEP int;
+SET @MONTHS_TO_KEEP = 9
+/********************************************************/
+
+
+
+DECLARE @SQLString varchar(500)
+DECLARE @S2 nvarchar(500)
+DECLARE @MONTHS_DATE date
+
+
+/* Calculate the oldest date that we should have in the db before archiving is necessary */
+IF (SELECT DATENAME(d, (GETDATE()))) > 1
+BEGIN
+	/* Not the first day of the month */
+	SELECT @MONTHS_DATE = ( CAST ( FLOOR ( CAST ( DATEADD ( month, ( @MONTHS_TO_KEEP * -1 ) , DATEADD ( day, DATENAME ( d, ( GETDATE() ) -1 ) *-1, ( GETDATE() ) ) ) AS FLOAT ) ) AS DATETIME ) )
+END
+ELSE BEGIN
+	/* The first day of the month (less math is necessary) */
+	SELECT @MONTHS_DATE = ( CAST ( FLOOR ( CAST ( DATEADD ( month, ( @MONTHS_TO_KEEP * -1 ) , GETDATE() ) AS FLOAT ) ) AS DATETIME ) )
+END
+
+
+/* Info */
+PRINT '************************************************'
+PRINT 'Current table:'
+PRINT @TABLE_NAME
+PRINT 'Oldest sample_date in current table:'
+PRINT @MIN_SAMPLE_DATE_IN_TABLE
+PRINT 'Number of months to keep:'
+PRINT @MONTHS_TO_KEEP
+PRINT 'Dropping anything older than:'
+PRINT @MONTHS_DATE
+PRINT ''
+
+
+DECLARE @MERGE_DATE date;
+IF (SELECT DATENAME(d, (@MIN_SAMPLE_DATE_IN_TABLE))) > 1
+BEGIN
+SET @MERGE_DATE = (
+SELECT 
+( 
+	CAST
+	( 
+		FLOOR
+		( 
+			CAST
+			( 
+				DATEADD
+				(
+					month, 
+					1, 
+					DATEADD
+					(
+						day, 
+						DATENAME
+						(
+							d, 
+							(@MIN_SAMPLE_DATE_IN_TABLE)
+							-1
+						)
+						*-1, 
+						(@MIN_SAMPLE_DATE_IN_TABLE)
+					)
+				)
+				AS FLOAT 
+			) 
+		) 
+		AS DATETIME 
+	) 
+) 
+AS date_only
+)
+
+END
+ELSE
+
+BEGIN
+SET @MERGE_DATE = (
+SELECT 
+( 
+	CAST
+	( 
+		FLOOR
+		( 
+			CAST
+			( 
+				DATEADD
+				(
+					month, 
+					1, 
+					(@MIN_SAMPLE_DATE_IN_TABLE)
+				)
+				AS FLOAT 
+			) 
+		) 
+		AS DATETIME 
+	) 
+) 
+AS date_only
+)
+END
+
+
+/* check if we have any data to archive */
+IF (@MIN_SAMPLE_DATE_IN_TABLE) < (@MONTHS_DATE)
+BEGIN
+	/* make sure that we aren't trying to drop multiple partitions (only one at a time!) */
+	IF (@MIN_SAMPLE_DATE_IN_TABLE) < (DATEADD(month, -1, @MONTHS_DATE))
+	BEGIN
+		PRINT 'Warning: Attempting to archive more than one partition! Skipping current table.';
+	END
+	ELSE BEGIN
+		PRINT 'Only one month is being partitioned (OK).';
+		
+		PRINT 'Last partition will hold anything older than: ';
+		PRINT @MERGE_DATE;
+		BEGIN TRANSACTION
+			/* performance_data_old table has already been created before calling this stored procedure */
+			IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U')
+			BEGIN
+				/* create the sql query */
+				/* ALTER PARTITION SCHEME [scheme_aggregate] NEXT USED [PRIMARY] */
+				SET @SQLString = 'ALTER PARTITION SCHEME [' + @SCHEME_NAME  + '] NEXT USED [PRIMARY]'
+				/* execute the query */
+				SELECT @S2 = CAST(@SQLString AS nvarchar(500))
+				EXECUTE sp_executesql @S2
+
+
+				/* create the sql query */
+				/* SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_aggregate(sample_date)) FROM performance_aggregate */
+				SET @SQLString = 'SELECT @OLDEST_PARTITION_NUM = min($PARTITION.' + @PARTITION_FUNCTION_NAME + '(' + @COLUMN_NAME + ')) FROM ' + @TABLE_NAME
+				/* execute the query */
+				SELECT @S2 = CAST(@SQLString AS nvarchar(500))
+				EXECUTE sp_executesql @S2, N'@OLDEST_PARTITION_NUM int', @OLDEST_PARTITION_NUM
+
+
+				/* create the sql query */
+				/* ALTER TABLE performance_aggregate SWITCH PARTITION @OLDEST_PARTITION_NUM TO [performance_aggregate_old]PARTITION @OLDEST_PARTITION_NUM */
+				SET @SQLString = 'ALTER TABLE ' + @TABLE_NAME + ' SWITCH PARTITION @OLDEST_PARTITION_NUM TO [performance_data_old]PARTITION @OLDEST_PARTITION_NUM'
+				/* execute the query */
+				SELECT @S2 = CAST(@SQLString AS nvarchar(500))
+				EXECUTE sp_executesql @S2, N'@OLDEST_PARTITION_NUM int', @OLDEST_PARTITION_NUM
+
+
+				/* create the sql query */
+				/* ALTER PARTITION FUNCTION [function_aggregate]() MERGE RANGE (@MERGE_DATE) */
+				SET @SQLString = 'ALTER PARTITION FUNCTION [' + @PARTITION_FUNCTION_NAME + ']() MERGE RANGE (@MERGE_DATE)'
+				/* execute the query */
+				SELECT @S2 = CAST(@SQLString AS nvarchar(500))
+				EXECUTE sp_executesql @S2, N'@MERGE_DATE date', @MERGE_DATE
+
+				PRINT 'Dropped oldest partition.'
+			END
+			ELSE BEGIN
+				PRINT 'Error: "performance_data_old" table was not created or cannot find it'
+			END
+		COMMIT TRANSACTION
+	END
+END
+ELSE BEGIN
+	PRINT 'No data to archive.'
+END
+
+/* Cleanup dump tables */
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+
+/* add a new line */
+PRINT ''
+
+END
+GO
+
+
+
+/**************************
+** PERFORMANCE_AGGREGATE **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[cpu_usr] [float] NULL,
+	[cpu_sys] [float] NULL,
+	[cpu_wio] [float] NULL,
+	[free_mem] [float] NULL,
+	[free_swap] [float] NULL,
+	[run_queue] [float] NULL,
+	[run_occ] [float] NULL,
+	[read_cache] [float] NULL,
+	[write_cache] [float] NULL,
+	[pg_out_sec] [float] NULL,
+	[ppg_out_sec] [float] NULL,
+	[pg_free_sec] [float] NULL,
+	[pg_scan_sec] [float] NULL,
+	[atch_sec] [float] NULL,
+	[pg_in_sec] [float] NULL,
+	[ppg_in_sec] [float] NULL,
+	[pflt_sec] [float] NULL,
+	[vflt_sec] [float] NULL,
+	[slock_sec] [float] NULL,
+	[num_procs] [numeric](19, 0) NULL,
+	[proc_read] [float] NULL,
+	[proc_write] [float] NULL,
+	[proc_block] [float] NULL,
+	[dnlc] [float] NULL,
+	[fork_sec] [float] NULL,
+	[exec_sec] [float] NULL,
+	[tcp_retrans] [numeric](19, 0) NULL,
+	[worst_disk_usage] [numeric](19, 0) NULL,
+	[worst_disk_busy] [numeric](19, 0) NULL,
+	[used_swap_percent] [numeric](19, 0) NULL,
+	[sample_date] [datetime] NOT NULL
+PRIMARY KEY CLUSTERED 
+(
+	[sample_id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_aggregate ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_aggregate)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_aggregate(sample_date)) FROM performance_aggregate
+exec upt_SwitchOutPartition 'sample_date', 'performance_aggregate', 'scheme_aggregate', 'function_aggregate', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** PERFORMANCE_CPU       **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[cpu_id] [numeric](19, 0) NULL,
+	[cpu_usr] [numeric](19, 0) NULL,
+	[cpu_sys] [numeric](19, 0) NULL,
+	[cpu_wio] [numeric](19, 0) NULL,
+	[xcal] [numeric](19, 0) NULL,
+	[intr] [numeric](19, 0) NULL,
+	[smtx] [numeric](19, 0) NULL,
+	[minf] [float] NULL,
+	[mjf] [float] NULL,
+	[ithr] [float] NULL,
+	[csw] [float] NULL,
+	[icsw] [float] NULL,
+	[migr] [float] NULL,
+	[srw] [float] NULL,
+	[syscl] [float] NULL,
+	[idle] [float] NULL,
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_cpu ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_cpu)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_cpu(sample_date)) FROM performance_cpu
+exec upt_SwitchOutPartition 'sample_date', 'performance_cpu', 'scheme_cpu', 'function_cpu', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** PERFORMANCE_DISK      **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[disk_name] [varchar](255) NULL,
+	[pct_time_busy] [numeric](19, 0) NULL,
+	[avg_queue_req] [numeric](19, 0) NULL,
+	[rw_sec] [numeric](19, 0) NULL,
+	[blocks_sec] [numeric](19, 0) NULL,
+	[avg_wait_time] [numeric](19, 0) NULL,
+	[avg_serv_time] [numeric](19, 0) NULL,
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_disk ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_disk)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_disk(sample_date)) FROM performance_disk
+exec upt_SwitchOutPartition 'sample_date', 'performance_disk', 'scheme_disk', 'function_disk', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/*****************************
+** PERFORMANCE_ESX3_WORKLOAD **
+*****************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[uuid] [varchar](255) NULL,
+	[instance_name] [varchar](255) NULL,
+	[cpu_usage_mhz] [numeric](19, 0) NULL,
+	[memory] [numeric](19, 0) NULL,
+	[disk_io_rate] [numeric](19, 0) NULL,
+	[network_io_rate] [numeric](19, 0) NULL,
+	[percent_ready] [float] NULL,
+	[percent_used] [float] NULL,
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_esx3_workload ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_esx3_workload)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_esx3_workload(sample_date)) FROM performance_esx3_workload
+exec upt_SwitchOutPartition 'sample_date', 'performance_esx3_workload', 'scheme_esx3_workload', 'function_esx3_workload', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** PERFORMANCE_FSCAP     **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[filesystem] [varchar](255) NULL,
+	[total_size] [numeric](19, 0) NULL,
+	[space_used] [numeric](19, 0) NULL,
+	[space_avail] [numeric](19, 0) NULL,
+	[percent_used] [numeric](19, 0) NULL,
+	[mount_point] [varchar](255) NULL,
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_fscap ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_fscap)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_fscap(sample_date)) FROM performance_fscap
+exec upt_SwitchOutPartition 'sample_date', 'performance_fscap', 'scheme_fscap', 'function_fscap', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/******************************
+** PERFORMANCE_LPAR_WORKLOAD **
+******************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[lpar_id] [numeric](19, 0) NULL,
+	[instance_name] [varchar](255) NULL,
+	[entitlement] [float] NULL,
+	[cpu_usage] [float] NULL,
+	[used_memory] [numeric](19, 0) NULL,
+	[network_io_rate] [numeric](19, 0) NULL,
+	[disk_io_rate] [numeric](19, 0) NULL,
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_lpar_workload ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_lpar_workload)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_lpar_workload(sample_date)) FROM performance_lpar_workload
+exec upt_SwitchOutPartition 'sample_date', 'performance_lpar_workload', 'scheme_lpar_workload', 'function_lpar_workload', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** PERFORMANCE_NETWORK   **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[iface_name] [varchar](255) NULL,
+	[in_bytes] [numeric](19, 0) NULL,
+	[out_bytes] [numeric](19, 0) NULL,
+	[collisions] [numeric](19, 0) NULL,
+	[in_errors] [numeric](19, 0) NULL,
+	[out_errors] [numeric](19, 0) NULL,
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_network ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_network)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_network(sample_date)) FROM performance_network
+exec upt_SwitchOutPartition 'sample_date', 'performance_network', 'scheme_network', 'function_network', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** PERFORMANCE_NRM       **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[work_to_do] [numeric](19, 0) NULL,
+	[available_disk] [numeric](19, 0) NULL,
+	[ds_thread_usage] [numeric](19, 0) NULL,
+	[allocated_server_procs] [numeric](19, 0) NULL,
+	[available_server_procs] [numeric](19, 0) NULL,
+	[packet_receive_buffers] [numeric](19, 0) NULL,
+	[available_ecbs] [numeric](19, 0) NULL,
+	[lan_traffic] [numeric](19, 0) NULL,
+	[connection_usage] [numeric](19, 0) NULL,
+	[disk_throughput] [numeric](19, 0) NULL,
+	[abended_thread_count] [numeric](19, 0) NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[sample_id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_nrm ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_nrm)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_nrm(sample_date)) FROM performance_nrm
+exec upt_SwitchOutPartition 'sample_date', 'performance_nrm', 'scheme_nrm', 'function_nrm', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** PERFORMANCE_PSINFO    **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[pid] [numeric](19, 0) NULL,
+	[ppid] [numeric](19, 0) NULL,
+	[ps_uid] [varchar](255) NULL,
+	[gid] [varchar](255) NULL,
+	[mem_used] [numeric](19, 0) NULL,
+	[rss] [numeric](19, 0) NULL,
+	[cpu_usage] [float] NULL,
+	[memory_usage] [float] NULL,
+	[user_cpu_time] [numeric](19, 0) NULL,
+	[sys_cpu_time] [numeric](19, 0) NULL,
+	[start_time] [datetime] NULL,
+	[proc_name] [varchar](255) NULL,
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_psinfo ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_psinfo)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_psinfo(sample_date)) FROM performance_psinfo
+exec upt_SwitchOutPartition 'sample_date', 'performance_psinfo', 'scheme_psinfo', 'function_psinfo', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** PERFORMANCE_VXVOL     **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[dg] [varchar](255) NULL,
+	[vol] [varchar](255) NULL,
+	[rd_ops] [numeric](19, 0) NULL,
+	[wr_ops] [numeric](19, 0) NULL,
+	[rd_blks] [numeric](19, 0) NULL,
+	[wr_blks] [numeric](19, 0) NULL,
+	[avg_rd] [numeric](19, 0) NULL,
+	[avg_wr] [numeric](19, 0) NULL,
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_vxvol ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_vxvol)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_vxvol(sample_date)) FROM performance_vxvol
+exec upt_SwitchOutPartition 'sample_date', 'performance_vxvol', 'scheme_vxvol', 'function_vxvol', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** PERFORMANCE_WHO       **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[username] [varchar](255) NULL,
+	[session_count] [numeric](19, 0) NULL,
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[sample_date] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_who ([sample_date]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_date) from performance_who)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_who(sample_date)) FROM performance_who
+exec upt_SwitchOutPartition 'sample_date', 'performance_who', 'scheme_who', 'function_who', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** PERFORMANCE_SAMPLE    **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[erdc_id] [numeric](19, 0) NULL,
+	[uptimehost_id] [numeric](19, 0) NULL,
+	[sample_time] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_time] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_sample ([sample_time]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_time) from performance_sample)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_sample(sample_time)) FROM performance_sample
+exec upt_SwitchOutPartition 'sample_time', 'performance_sample', 'scheme_sample', 'function_sample', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** ERDC_INT_DATA         **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[erdc_int_data_id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[erdc_instance_id] [numeric](19, 0) NULL,
+	[erdc_parameter_id] [numeric](19, 0) NULL,
+	[value] [numeric](19, 0) NULL,
+	[sampletime] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[erdc_int_data_id],
+	[sampletime] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_int_data ([sampletime]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sampletime) from erdc_int_data)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_int_data(sampletime)) FROM erdc_int_data
+exec upt_SwitchOutPartition 'sampletime', 'erdc_int_data', 'scheme_int_data', 'function_int_data', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** ERDC_DECIMAL_DATA     **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[erdc_int_data_id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[erdc_instance_id] [numeric](19, 0) NULL,
+	[erdc_parameter_id] [numeric](19, 0) NULL,
+	[value] [float] NULL,
+	[sampletime] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[erdc_int_data_id],
+	[sampletime] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_decimal_data ([sampletime]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sampletime) from erdc_decimal_data)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_decimal_data(sampletime)) FROM erdc_decimal_data
+exec upt_SwitchOutPartition 'sampletime', 'erdc_decimal_data', 'scheme_decimal_data', 'function_decimal_data', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** ERDC_STRING_DATA      **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[erdc_int_data_id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[erdc_instance_id] [numeric](19, 0) NULL,
+	[erdc_parameter_id] [numeric](19, 0) NULL,
+	[value] [text] NULL,
+	[sampletime] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[erdc_int_data_id],
+	[sampletime] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_string_data ([sampletime]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sampletime) from erdc_string_data)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_string_data(sampletime)) FROM erdc_string_data
+exec upt_SwitchOutPartition 'sampletime', 'erdc_string_data', 'scheme_string_data', 'function_string_data', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+/**************************
+** RANGED_OBJECT_VALUE   **
+**************************/
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'performance_data_old' AND type = 'U') DROP TABLE performance_data_old;
+CREATE TABLE [dbo].performance_data_old(
+	[id] [numeric](19, 0) IDENTITY(1,1) NOT NULL,
+	[erdc_id] [numeric](19, 0) NULL,
+	[uptimehost_id] [numeric](19, 0) NULL,
+	[sample_time] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id],
+	[sample_time] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON)
+) ON scheme_ranged_object_value ([sample_time]);
+
+
+DECLARE @MIN_DATE DATE
+SET @MIN_DATE = (SELECT MIN(sample_time) from ranged_object_value)
+DECLARE @OLDEST_PARTITION_NUM int
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_ranged_object_value(sample_time)) FROM ranged_object_value
+exec upt_SwitchOutPartition 'sample_time', 'ranged_object_value', 'scheme_ranged_object_value', 'function_ranged_object_value', @MIN_DATE, @OLDEST_PARTITION_NUM
+GO
+
+
+
+
+
+
+
+SWITCHING IN PARTITIONS:
+
+/*
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetHighestPartition' AND type = 'FN') DROP FUNCTION upt_GetHighestPartition
+GO
+CREATE FUNCTION dbo.upt_GetHighestPartition  (
+@TABLE_NAME varchar(50)
+)
+RETURNS int
+AS
+BEGIN
+	DECLARE @RV int;
+	SELECT @RV = max(partition_number) FROM sys.partitions
+		WHERE OBJECT_ID = OBJECT_ID(@TABLE_NAME);
+	RETURN @RV;
+END
+GO
+*/
+
+
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetFirstDayOfCurrentMonth' AND type = 'FN') DROP FUNCTION upt_GetFirstDayOfCurrentMonth
+GO
+CREATE FUNCTION dbo.upt_GetFirstDayOfCurrentMonth ()
+RETURNS date
+AS
+BEGIN
+	DECLARE @RV date;
+	/* Calculate the 1st day of the current month and let's start with that... */
+	IF (SELECT DATENAME(DAY, (GETDATE()))) > 1
+	BEGIN
+		/* Not the first day of the month */
+		SELECT @RV = ( CAST ( FLOOR ( CAST ( DATEADD ( day, DATENAME ( d, ( GETDATE() ) -1 ) *-1, ( GETDATE() ) ) AS FLOAT ) ) AS DATETIME ) )
+	END
+	ELSE BEGIN
+		/* The first day of the month (less math is necessary) */
+		SELECT @RV = ( CAST ( FLOOR ( CAST ( GETDATE() AS FLOAT ) ) AS DATETIME ) )
+	END
+	RETURN @RV;
+END
+GO
+
+
+
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionForTable' AND type = 'FN') DROP FUNCTION upt_GetPartitionForTable
+GO
+CREATE FUNCTION dbo.upt_GetPartitionForTable (
+@TABLE_NAME varchar(50),
+@CHECK_DATE date
+)
+RETURNS int
+AS
+BEGIN
+	DECLARE @RV int;
+	/* check table names and run appropriate function to get partition number for date */
+	IF (@TABLE_NAME = 'performance_aggregate')
+		SET @RV = dbo.upt_GetPartitionFor_aggregate(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_cpu')
+		SET @RV = dbo.upt_GetPartitionFor_cpu(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_disk')
+		SET @RV = dbo.upt_GetPartitionFor_disk(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_esx3_workload')
+		SET @RV = dbo.upt_GetPartitionFor_esx3_workload(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_fscap')
+		SET @RV = dbo.upt_GetPartitionFor_fscap(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_lpar_workload')
+		SET @RV = dbo.upt_GetPartitionFor_lpar_workload(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_network')
+		SET @RV = dbo.upt_GetPartitionFor_network(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_nrm')
+		SET @RV = dbo.upt_GetPartitionFor_nrm(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_psinfo')
+		SET @RV = dbo.upt_GetPartitionFor_psinfo(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_vxvol')
+		SET @RV = dbo.upt_GetPartitionFor_vxvol(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_who')
+		SET @RV = dbo.upt_GetPartitionFor_who(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'performance_sample')
+		SET @RV = dbo.upt_GetPartitionFor_sample(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'erdc_int_data')
+		SET @RV = dbo.upt_GetPartitionFor_int(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'erdc_decimal_data')
+		SET @RV = dbo.upt_GetPartitionFor_decimal(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'erdc_string_data')
+		SET @RV = dbo.upt_GetPartitionFor_string(@CHECK_DATE)
+	ELSE IF (@TABLE_NAME = 'ranged_object_value')
+		SET @RV = dbo.upt_GetPartitionFor_ranged(@CHECK_DATE)
+	ELSE
+		SET @RV = 0 /* should never get here */
+	RETURN @RV;
+END
+GO
+
+
+/* Have to have seperate functions for each performance table because we can't set variables within an EXECUTE statement, and we need an EXECUTE statement to use variable table names. */
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_aggregate' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_aggregate
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_aggregate (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_aggregate(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_cpu' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_cpu
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_cpu (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_cpu(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_disk' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_disk
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_disk (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_disk(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_esx3_workload' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_esx3_workload
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_esx3_workload (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_esx3_workload(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_fscap' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_fscap
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_fscap (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_fscap(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_lpar_workload' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_lpar_workload
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_lpar_workload (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_lpar_workload(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_network' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_network
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_network (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_network(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_nrm' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_nrm
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_nrm (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_nrm(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_psinfo' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_psinfo
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_psinfo (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_psinfo(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_vxvol' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_vxvol
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_vxvol (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_vxvol(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_who' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_who
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_who (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_who(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_sample' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_sample
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_sample (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_sample(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_int' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_int
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_int (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_int_data(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_decimal' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_decimal
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_decimal (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_decimal_data(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_string' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_string
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_string (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_string_data(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetPartitionFor_ranged' AND type = 'FN') DROP FUNCTION upt_GetPartitionFor_ranged
+GO
+CREATE FUNCTION dbo.upt_GetPartitionFor_ranged (@CHECK_DATE date)
+RETURNS int
+AS
+BEGIN
+	DECLARE @PART_NUM int;
+	SELECT @PART_NUM = $PARTITION.function_ranged_object_value(@CHECK_DATE)
+	RETURN @PART_NUM;
+END
+GO
+
+
+
+
+
+
+
+IF EXISTS (SELECT name FROM sysobjects WHERE name = 'upt_GetLeadingPartitionDate' AND type = 'P') DROP PROCEDURE upt_GetLeadingPartitionDate
+GO
+CREATE PROCEDURE upt_GetLeadingPartitionDate
+	@TABLE_NAME varchar(50),
+	@LAST_MONTH date OUTPUT
+AS
+BEGIN
+	/*DECLARE @LAST_MONTH date;*/
+	DECLARE @NEXT_MONTH date;
+	DECLARE @LAST_PARTITION int;
+	DECLARE @NEXT_PARTITION int;
+	DECLARE @SQLString varchar(500);
+	DECLARE @S2 nvarchar(500);
+
+	SET @NEXT_PARTITION = 0
+
+	/* Calculate the 1st day of the current month and let's start with that... */
+	set @LAST_MONTH = dbo.upt_GetFirstDayOfCurrentMonth()
+
+	/* Setup the current partition */
+	SET @LAST_PARTITION = dbo.upt_GetPartitionForTable(@TABLE_NAME, @LAST_MONTH)
+	
+	/* check for invalid tables (return value from above function will be zero) */
+	IF @LAST_PARTITION = 0
+		PRINT 'Warning: Invalid table to archive'
+
+	/* Now we'll compare and keep trying to see when next month's data will be put in to the same partition as the previous month, and then we'll have the leading partition date */
+	WHILE ( @LAST_PARTITION <> @NEXT_PARTITION )
+	BEGIN
+		SET @LAST_PARTITION = @NEXT_PARTITION
+		
+		/* go to the next month */
+		SELECT @NEXT_MONTH = DATEADD(MONTH, 1, @LAST_MONTH)
+		
+		/* get next month's partition number */
+		SET @NEXT_PARTITION = dbo.upt_GetPartitionForTable(@TABLE_NAME, @NEXT_MONTH)
+		
+		/* check if the last and next partitions are the same, and if so... */
+		IF ( @LAST_PARTITION = @NEXT_PARTITION )
+		BEGIN
+			/* ... break */
+			BREAK
+		END
+		
+		/* otherwise, just update the last partition/month */
+		SET @LAST_MONTH = @NEXT_MONTH
+	END
+END
+GO

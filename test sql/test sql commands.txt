@@ -1,0 +1,108 @@
+BEGIN TRANSACTION
+USE [uptime]
+SET ANSI_NULLS ON
+SET QUOTED_IDENTIFIER ON
+CREATE TABLE [dbo].[staging_performance_aggregate_20090918-162319](
+	[sample_id] [numeric](19, 0) NOT NULL,
+	[cpu_usr] [float](53) NULL,
+	[cpu_sys] [float](53) NULL,
+	[cpu_wio] [float](53) NULL,
+	[free_mem] [float](53) NULL,
+	[free_swap] [float](53) NULL,
+	[run_queue] [float](53) NULL,
+	[run_occ] [float](53) NULL,
+	[read_cache] [float](53) NULL,
+	[write_cache] [float](53) NULL,
+	[pg_out_sec] [float](53) NULL,
+	[ppg_out_sec] [float](53) NULL,
+	[pg_free_sec] [float](53) NULL,
+	[pg_scan_sec] [float](53) NULL,
+	[atch_sec] [float](53) NULL,
+	[pg_in_sec] [float](53) NULL,
+	[ppg_in_sec] [float](53) NULL,
+	[pflt_sec] [float](53) NULL,
+	[vflt_sec] [float](53) NULL,
+	[slock_sec] [float](53) NULL,
+	[num_procs] [numeric](19, 0) NULL,
+	[proc_read] [float](53) NULL,
+	[proc_write] [float](53) NULL,
+	[proc_block] [float](53) NULL,
+	[dnlc] [float](53) NULL,
+	[fork_sec] [float](53) NULL,
+	[exec_sec] [float](53) NULL,
+	[tcp_retrans] [numeric](19, 0) NULL,
+	[worst_disk_usage] [numeric](19, 0) NULL,
+	[worst_disk_busy] [numeric](19, 0) NULL,
+	[used_swap_percent] [numeric](19, 0) NULL,
+	[sample_date] [date] NOT NULL
+) ON [PRIMARY]
+
+USE [uptime]
+ALTER TABLE [dbo].[staging_performance_aggregate_20090918-162319] ADD  CONSTRAINT [staging_performance_aggregate_20090918-162319_PK__performa__5D006E3B6172F9C4] PRIMARY KEY CLUSTERED 
+(
+	[sample_id] ASC,
+	[sample_date] ASC
+)WITH (PAD_INDEX  = OFF, SORT_IN_TEMPDB = OFF, IGNORE_DUP_KEY = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+
+USE [uptime]
+
+ALTER TABLE [dbo].[staging_performance_aggregate_20090918-162319]  WITH CHECK ADD  CONSTRAINT [chk_staging_performance_aggregate_20090918-162319_partition_1] CHECK  ([sample_date]<N'2009-08-01')
+
+ALTER TABLE [dbo].[staging_performance_aggregate_20090918-162319] CHECK CONSTRAINT [chk_staging_performance_aggregate_20090918-162319_partition_1]
+
+
+
+Switch Out
+
+
+USE [uptime]
+
+
+DECLARE @OLDEST_PARTITION_NUM numeric(5)
+SELECT @OLDEST_PARTITION_NUM = min($PARTITION.function_sample(sample_time)) FROM performance_sample
+SELECT @OLDEST_PARTITION_NUM as OldestPartitionNum
+
+ALTER TABLE performance_aggregate SWITCH PARTITION @OLDEST_PARTITION_NUM TO [performance_aggregate_old]PARTITION @OLDEST_PARTITION_NUM
+
+ALTER PARTITION FUNCTION [function_aggregate]() MERGE RANGE(N'2009-08-01')
+
+
+
+Switch In
+
+/*
+DECLARE @NEW_PARTITION_NUM numeric(5)
+SELECT @NEW_PARTITION_NUM = max($PARTITION.function_sample(sample_time)) + 1 FROM performance_sample
+SELECT @NEW_PARTITION_NUM as NewPartitionNum
+/////ALTER TABLE [uptime].[dbo].[performance_aggregate_new] SWITCH  TO [uptime].[dbo].[performance_aggregate]PARTITION @NEW_PARTITION_NUM 
+*/
+
+
+ALTER PARTITION SCHEME [scheme_aggregate] NEXT USED [PRIMARY]
+
+ALTER PARTITION FUNCTION [function_aggregate]() SPLIT RANGE(N'2009-12-01')
+
+COMMIT TRANSACTION
+
+
+
+
+
+
+
+
+SELECT $PARTITION.function_sample(sample_time) AS Partition, COUNT(*) as [COUNT]
+FROM performance_sample
+GROUP BY $PARTITION.function_sample(sample_time)
+ORDER BY Partition
+
+
+SELECT $PARTITION.function_sample('2009-08-01')
+
+
+
+
+
+SELECT *
+FROM sys.partitions
+WHERE OBJECT_ID = OBJECT_ID('MyPartitionedTable')
