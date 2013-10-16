@@ -7,13 +7,13 @@ See http://uptimesoftware.github.io for more information.
 
 ### Category
 
-{ page.category }}
+database
 
 ### Version Compatibility
 
 
   
-    * Database Table Partitioning Mod SQL Server 1.0 - 5.4, 5.3
+* Database Table Partitioning Mod SQL Server 1.0 - 5.4, 5.3
   
 
 
@@ -45,5 +45,4 @@ None; no agent required
 
 
 ### Languages Used
-
 
